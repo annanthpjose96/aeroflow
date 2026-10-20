@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aeroflow"
+version = "0.1.0"
+description = "Multi-camera passenger flow, queue analytics and safety alerts for airports (privacy-preserving)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+  "numpy>=1.24", "opencv-python-headless>=4.8", "pyyaml>=6", "fastapi>=0.110",
+  "uvicorn[standard]>=0.27", "prometheus-client>=0.19",
+]
+
+[project.optional-dependencies]
+vision = ["ultralytics>=8.3", "onnx", "onnxruntime"]
+kafka = ["kafka-python>=2.0"]
+mqtt = ["paho-mqtt>=1.6"]
+rag = ["sentence-transformers>=3.0"]
+dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.5"]
+
+[project.scripts]
+aeroflow = "aeroflow.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+aeroflow = ["static/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 120
+src = ["src", "tests"]

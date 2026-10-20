@@ -1,0 +1,23 @@
+# Template nvinfer config for a YOLO detector (person + bag classes). Adjust paths/parser.
+[property]
+gpu-id=0
+net-scale-factor=0.0039215697906911373
+model-color-format=0
+onnx-file=../models/yolo11n.onnx
+model-engine-file=../models/yolo11n_b4_gpu0_fp16.engine
+batch-size=4
+network-mode=2            # 0=FP32, 1=INT8, 2=FP16
+num-detected-classes=80
+interval=0
+gie-unique-id=1
+process-mode=1
+network-type=0
+cluster-mode=2
+maintain-aspect-ratio=1
+symmetric-padding=1
+parse-bbox-func-name=NvDsInferParseYolo
+custom-lib-path=../models/libnvdsinfer_custom_impl_Yolo.so
+
+[class-attrs-all]
+nms-iou-threshold=0.45
+pre-cluster-threshold=0.35

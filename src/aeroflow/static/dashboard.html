@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AeroFlow – live floor view</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --fg:#14181f; --muted:#667085; --line:#d9dde3;
+          --person:#2563eb; --bag:#d97706; --crit:#dc2626; --warn:#d97706; --info:#2563eb; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0f1318; --card:#181d25; --fg:#e8ecf2; --muted:#98a2b3; --line:#2a313c; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--fg); }
+  header { display:flex; justify-content:space-between; align-items:center; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--card); }
+  h1 { font-size:16px; margin:0; } .muted { color:var(--muted); }
+  main { display:grid; grid-template-columns:minmax(0,2fr) minmax(280px,1fr); gap:16px; padding:16px; max-width:1400px; margin:auto; }
+  @media (max-width:900px) { main { grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .card h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:0 0 10px; }
+  canvas { width:100%; height:auto; border-radius:6px; border:1px solid var(--line); display:block; }
+  .row { display:flex; justify-content:space-between; gap:8px; padding:6px 0; border-bottom:1px solid var(--line); }
+  .row:last-child { border:0; }
+  .alert { padding:8px 10px; border-left:4px solid var(--info); background:var(--bg); border-radius:4px; margin-bottom:6px; font-size:13px; }
+  .alert.critical { border-color:var(--crit); } .alert.warning { border-color:var(--warn); }
+  .controls { display:flex; gap:12px; align-items:center; margin-top:8px; flex-wrap:wrap; }
+  input[type=text] { flex:1; min-width:0; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
+  button { padding:8px 12px; border:0; border-radius:6px; background:var(--person); color:#fff; cursor:pointer; }
+  .steps { margin:6px 0 2px; padding-left:18px; } .src { font-size:12px; }
+  button.ghost { background:transparent; color:var(--muted); border:1px solid var(--line); }
+  .answer { margin-top:10px; font-size:13px; } .answer:empty { display:none; }
+  .answer .adv { font-size:12px; color:var(--muted); margin-top:6px; }
+  select { padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--bg); color:var(--fg); }
+  .stack { display:flex; flex-direction:column; gap:16px; }
+  .pill { font-size:12px; padding:2px 8px; border-radius:99px; background:var(--bg); border:1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>✈ AeroFlow <span class="muted">· passenger flow &amp; queue analytics</span></h1>
+  <span class="pill" id="status">connecting…</span>
+</header>
+<main>
+  <section class="card">
+    <h2>Floor plan (top-down, anonymous tracks)</h2>
+    <canvas id="map" width="800" height="480" aria-label="Live floor map"></canvas>
+    <div class="controls">
+      <label><input type="checkbox" id="heat"> Heatmap</label>
+      <span class="muted"><span style="color:var(--person)">●</span> person &nbsp;<span style="color:var(--bag)">■</span> bag &nbsp;<span style="color:var(--crit)">◉</span> alert</span>
+    </div>
+  </section>
+  <div class="stack">
+    <section class="card"><h2>Zones</h2><div id="zones"></div></section>
+    <section class="card"><h2>Active alerts</h2><div id="alerts"><span class="muted">None</span></div></section>
+    <section class="card">
+      <h2>Ask</h2>
+      <div class="controls" style="margin-top:0"><select id="mode"><option value="data">Data</option><option value="sop">Procedures</option></select><input type="text" id="q" placeholder="When was the Security Queue longest?"><button id="ask">Ask</button><button id="clear" class="ghost" title="Clear (Esc)">Clear</button></div>
+      <div id="answer" class="answer" aria-live="polite"></div>
+    </section>
+  </div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const cv = $('map'), ctx = cv.getContext('2d');
+let layout = null, heat = null, last = null;
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const esc = t => String(t).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const mmss = s => s == null ? '–' : (s/60).toFixed(1) + ' min';
+
+async function init() {
+  layout = await (await fetch('/api/layout')).json();
+  setInterval(async () => { if ($('heat').checked) heat = await (await fetch('/api/heatmap')).json(); }, 2000);
+  connect();
+}
+function connect() {
+  const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  ws.onopen = () => $('status').textContent = 'live';
+  ws.onclose = () => { $('status').textContent = 'reconnecting…'; setTimeout(connect, 1500); };
+  ws.onmessage = e => { last = JSON.parse(e.data); draw(); panels(); };
+}
+function draw() {
+  if (!layout || !last) return;
+  const sx = cv.width / layout.floor.width, sy = cv.height / layout.floor.height;
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  if ($('heat').checked && heat) {
+    const g = heat.grid, mx = Math.max(1, ...g.flat()), c = heat.cell_m;
+    g.forEach((row, y) => row.forEach((v, x) => { if (v > 0) { ctx.fillStyle = `rgba(220,38,38,${0.55 * v / mx})`; ctx.fillRect(x*c*sx, y*c*sy, c*sx, c*sy); } }));
+  }
+  layout.zones.forEach(z => {
+    ctx.beginPath(); z.polygon.forEach(([x, y], i) => i ? ctx.lineTo(x*sx, y*sy) : ctx.moveTo(x*sx, y*sy)); ctx.closePath();
+    ctx.fillStyle = z.type === 'restricted' ? 'rgba(220,38,38,.12)' : z.type === 'queue' ? 'rgba(217,119,6,.12)' : 'rgba(37,99,235,.08)';
+    ctx.fill(); ctx.strokeStyle = css('--line'); ctx.stroke();
+    ctx.fillStyle = css('--muted'); ctx.font = '12px system-ui'; ctx.fillText(z.name, z.polygon[0][0]*sx + 4, z.polygon[0][1]*sy + 14);
+  });
+  last.tracks.forEach(t => {
+    ctx.fillStyle = t.cls === 'bag' ? css('--bag') : (t.fallen ? css('--crit') : css('--person'));
+    if (t.cls === 'bag') ctx.fillRect(t.x*sx - 4, t.y*sy - 4, 8, 8);
+    else { ctx.beginPath(); ctx.arc(t.x*sx, t.y*sy, 4.5, 0, 6.3); ctx.fill(); }
+  });
+  last.alerts.forEach(a => { if (a.pos) { ctx.strokeStyle = css('--crit'); ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(a.pos[0]*sx, a.pos[1]*sy, 13, 0, 6.3); ctx.stroke(); ctx.lineWidth = 1; } });
+}
+function panels() {
+  $('zones').innerHTML = last.zones.map(z => {
+    const fc = last.forecast[z.id];
+    const extra = z.type === 'queue' ? `<div class="muted">wait ${mmss(z.est_wait_s)}${fc && fc.pred_wait_s != null ? ` → ${mmss(fc.pred_wait_s)} in ${Math.round(fc.horizon_s/60)} min` : ''}</div>` : '';
+    return `<div class="row"><div><b>${z.name}</b>${extra}</div><div style="text-align:right"><b>${z.count}</b>${z.capacity ? ' / ' + z.capacity : ''}<div class="muted">${z.density.toFixed(2)}/m²</div></div></div>`;
+  }).join('');
+  $('alerts').innerHTML = last.alerts.length ? last.alerts.map(a => {
+    const r = a.recommended;
+    const steps = r ? `<ol class="steps">${r.steps.slice(0, 4).map(x => `<li>${esc(x)}</li>`).join('')}</ol><div class="muted src">Source: ${esc(r.sources.map(x => x.title + ' › ' + x.section).slice(0, 2).join('; '))}</div>` : '';
+    return `<div class="alert ${a.severity}">${esc(a.summary)}${steps}</div>`;
+  }).join('') : '<span class="muted">None</span>';
+}
+async function ask() {
+  const q = $('q').value.trim(); if (!q) return;
+  const sop = $('mode').value === 'sop', out = $('answer');
+  out.textContent = 'Searching…';
+  let res;
+  try { res = await fetch((sop ? '/api/sop/ask?q=' : '/api/search?q=') + encodeURIComponent(q)); }
+  catch (e) { out.textContent = 'Request failed.'; return; }
+  if (!res.ok) { out.textContent = 'Unavailable (' + res.status + ')'; return; }
+  const r = await res.json();
+  if (!sop) { out.innerHTML = `${esc(r.answer)} <span class="muted">[${esc(r.parser)}]</span>`; return; }
+  const src = r.sources.slice(0, 2).map(x => esc(x.title + ' › ' + x.section)).join('; ');
+  const body = r.steps ? `<b>${esc(r.title)}</b><ol class="steps">${r.steps.map(x => `<li>${esc(x)}</li>`).join('')}</ol>` : esc(r.answer);
+  out.innerHTML = `${body}<div class="muted src">${src ? 'Source: ' + src : ''}</div><div class="adv">${esc(r.advisory)}</div>`;
+}
+function clearAsk() { $('q').value = ''; $('answer').innerHTML = ''; $('q').focus(); }
+$('mode').onchange = () => { $('q').placeholder = $('mode').value === 'sop' ? 'What do we do if someone collapses?' : 'When was the Security Queue longest?'; };
+$('ask').onclick = ask; $('clear').onclick = clearAsk;
+$('mode').addEventListener('change', () => { $('answer').innerHTML = ''; });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') clearAsk(); }); $('q').onkeydown = e => { if (e.key === 'Enter') ask(); };
+$('heat').onchange = async () => { if ($('heat').checked) heat = await (await fetch('/api/heatmap')).json(); };
+init();
+</script>
+</body>
+</html>

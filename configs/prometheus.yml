@@ -1,0 +1,4 @@
+global: {scrape_interval: 5s}
+scrape_configs:
+  - job_name: aeroflow
+    static_configs: [{targets: ["aeroflow:8000"]}]

@@ -1,0 +1,28 @@
+# AeroFlow + Prometheus + Grafana. Start with:  docker compose up --build
+# Dashboard: http://localhost:8000   Prometheus: http://localhost:9090   Grafana: http://localhost:3000 (admin/admin)
+services:
+  aeroflow:
+    build: .
+    ports: ["8000:8000"]
+    volumes: ["aeroflow-data:/data"]
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes: ["./configs/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    ports: ["9090:9090"]
+    depends_on: [aeroflow]
+
+  grafana:
+    image: grafana/grafana:latest
+    ports: ["3000:3000"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin   # change for anything beyond local demos
+    volumes:
+      - ./configs/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml:ro
+      - ./configs/grafana/dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+      - ./configs/grafana/aeroflow.json:/var/lib/grafana/dashboards/aeroflow.json:ro
+    depends_on: [prometheus]
+
+volumes:
+  aeroflow-data:

@@ -1,0 +1,44 @@
+# AeroFlow default configuration (simulated airport hall, 40 m x 24 m).
+# Units: metres on the floor plan, pixels in images.
+
+floor: {width: 40.0, height: 24.0}
+
+# Each camera: >=4 image-pixel <-> floor-metre correspondences define its homography.
+# For real cameras, measure these on site (e.g. floor markings, tile corners).
+# `source` is used only with `--source rtsp`.
+cameras:
+  - id: cam1
+    resolution: [1280, 720]
+    image_points: [[0, 0], [1280, 0], [1280, 720], [0, 720]]
+    floor_points: [[0, 0], [24, 0], [24, 24], [0, 24]]
+    source: rtsp://user:pass@192.168.1.10:554/stream1
+  - id: cam2
+    resolution: [1280, 720]
+    image_points: [[0, 0], [1280, 0], [1280, 720], [0, 720]]
+    floor_points: [[16, 0], [40, 0], [40, 24], [16, 24]]
+    source: rtsp://user:pass@192.168.1.11:554/stream1
+
+zones:
+  - {id: check_in, name: Check-in Hall, type: area, capacity: 40, max_density: 1.2,
+     polygon: [[2, 2], [14, 2], [14, 10], [2, 10]]}
+  - {id: security_queue, name: Security Queue, type: queue, capacity: 30, max_wait_s: 150,
+     polygon: [[18, 4], [30, 4], [30, 10], [18, 10]]}
+  - {id: gate_5, name: Gate 5, type: area, capacity: 25, max_dwell_s: 300,
+     polygon: [[26, 14], [38, 14], [38, 22], [26, 22]]}
+  - {id: restricted, name: Staff Only Area, type: restricted,
+     polygon: [[34, 2], [39, 2], [39, 6], [34, 6]]}
+
+# Anything omitted falls back to aeroflow.config.DEFAULTS
+sim:
+  arrival_rate_per_min: 12
+  service_time_s: 6
+  speed: 4          # simulation runs 4x faster than wall clock when serving the dashboard
+
+events:
+  backend: jsonl    # jsonl | kafka | mqtt | none
+
+rag:
+  enabled: true
+  sop_dir: sops          # markdown SOPs; front-matter `alert_types` links a document to alert types
+  backend: bm25          # bm25 (no downloads) | hybrid (+ local sentence-transformers, `pip install .[rag]`)
+  top_k: 3
